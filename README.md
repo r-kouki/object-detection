@@ -2,6 +2,13 @@
 
 A **fully dockerized**, production-ready MLOps pipeline for object detection using Ultralytics YOLO11. Zero local ML tool installation required - everything runs in containers.
 
+[![CI/CD](https://github.com/YOUR_USERNAME/object-detection/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/YOUR_USERNAME/object-detection/actions/workflows/ci-cd.yml)
+
+## 📚 Documentation
+
+- **[Architecture & Justifications](docs/ARCHITECTURE.md)** - Detailed architecture and technology choices
+- **[README](README.md)** - Quick start guide
+
 ## 🏗️ Architecture
 
 ```

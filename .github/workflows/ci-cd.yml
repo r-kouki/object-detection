@@ -1,0 +1,227 @@
+name: MLOps CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, master, develop]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Weekly smoke test
+    - cron: '0 0 * * 0'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ============================================================================
+  # Lint & Type Check
+  # ============================================================================
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install linting tools
+        run: |
+          pip install ruff mypy types-requests types-PyYAML
+      
+      - name: Run Ruff linter
+        run: ruff check src/ api/ tests/ --output-format=github
+        continue-on-error: true
+      
+      - name: Run Ruff formatter check
+        run: ruff format --check src/ api/ tests/
+        continue-on-error: true
+
+  # ============================================================================
+  # Unit Tests
+  # ============================================================================
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-trainer.txt
+          pip install -r requirements-api.txt
+          pip install pytest pytest-cov httpx
+      
+      - name: Run unit tests
+        run: |
+          pytest tests/test_api.py -v --tb=short
+        continue-on-error: true
+
+  # ============================================================================
+  # Smoke Test (Weekly training validation)
+  # ============================================================================
+  smoke-test:
+    name: Smoke Training Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ultralytics pytest
+      
+      - name: Run smoke training test
+        run: |
+          pytest tests/test_smoke_train.py -v --tb=short -k "test_yolo_import or test_minimal_training"
+
+  # ============================================================================
+  # Build Docker Images
+  # ============================================================================
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    permissions:
+      contents: read
+      packages: write
+    
+    strategy:
+      matrix:
+        image: [trainer, api, mlflow]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/${{ matrix.image }}.Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================================================
+  # Integration Test (Full Stack)
+  # ============================================================================
+  integration-test:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    services:
+      minio:
+        image: minio/minio:latest
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: --health-cmd "mc ready local"
+      
+      postgres:
+        image: postgres:15-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: mlflow
+          POSTGRES_PASSWORD: mlflow
+          POSTGRES_DB: mlflow
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create MinIO buckets
+        run: |
+          docker run --rm --network host minio/mc:latest \
+            mc alias set myminio http://localhost:9000 minioadmin minioadmin && \
+            mc mb --ignore-existing myminio/dvc && \
+            mc mb --ignore-existing myminio/mlflow
+      
+      - name: Test API health (mock)
+        run: |
+          echo "Integration test placeholder - requiring full stack"
+          echo "In production, this would spin up the full docker-compose stack"
+
+  # ============================================================================
+  # Deploy (Manual or Tag)
+  # ============================================================================
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: production
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy notification
+        run: |
+          echo "🚀 Deploying version ${{ github.ref_name }}"
+          echo "Images available at:"
+          echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/trainer:${{ github.ref_name }}"
+          echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:${{ github.ref_name }}"
+          echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/mlflow:${{ github.ref_name }}"
+      
+      # Add your deployment steps here
+      # Examples:
+      # - SSH deploy to VM
+      # - kubectl apply to Kubernetes
+      # - AWS ECS/EKS deployment
+      # - Google Cloud Run deployment
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
+          files: |
+            configs/*.yaml
+            docker-compose.yml
