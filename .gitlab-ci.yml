@@ -1,0 +1,177 @@
+# =============================================================================
+# GitLab CI/CD Pipeline
+# =============================================================================
+
+stages:
+  - lint
+  - test
+  - build
+  - push
+  - deploy
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+  # Container registry (adjust for your GitLab instance)
+  CONTAINER_REGISTRY: $CI_REGISTRY
+  TRAINER_IMAGE: $CI_REGISTRY_IMAGE/trainer
+  API_IMAGE: $CI_REGISTRY_IMAGE/api
+
+# =============================================================================
+# Templates
+# =============================================================================
+.docker_template: &docker_template
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+# =============================================================================
+# Stage: Lint
+# =============================================================================
+lint:
+  stage: lint
+  image: python:3.11-slim
+  before_script:
+    - pip install ruff
+  script:
+    - ruff check src/ api/ tests/ --output-format=gitlab
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "dev"
+
+# =============================================================================
+# Stage: Test
+# =============================================================================
+test:unit:
+  stage: test
+  image: python:3.11-slim
+  before_script:
+    - apt-get update && apt-get install -y libgl1 libglib2.0-0
+    - pip install -r requirements-trainer.txt
+    - pip install pytest pytest-cov
+  script:
+    - pytest tests/ -v --cov=src --cov-report=xml --cov-report=term
+  coverage: '/TOTAL.*\s+(\d+%)/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "dev"
+
+# =============================================================================
+# Stage: Build
+# =============================================================================
+build:trainer:
+  stage: build
+  <<: *docker_template
+  script:
+    - docker build -t $TRAINER_IMAGE:$CI_COMMIT_SHA -f docker/trainer.Dockerfile .
+    - docker tag $TRAINER_IMAGE:$CI_COMMIT_SHA $TRAINER_IMAGE:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG
+
+build:api:
+  stage: build
+  <<: *docker_template
+  script:
+    - docker build -t $API_IMAGE:$CI_COMMIT_SHA -f docker/api.Dockerfile .
+    - docker tag $API_IMAGE:$CI_COMMIT_SHA $API_IMAGE:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG
+
+# =============================================================================
+# Stage: Push
+# =============================================================================
+push:trainer:
+  stage: push
+  <<: *docker_template
+  needs:
+    - build:trainer
+  script:
+    - docker push $TRAINER_IMAGE:$CI_COMMIT_SHA
+    - docker push $TRAINER_IMAGE:latest
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        docker tag $TRAINER_IMAGE:$CI_COMMIT_SHA $TRAINER_IMAGE:$CI_COMMIT_TAG
+        docker push $TRAINER_IMAGE:$CI_COMMIT_TAG
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG
+
+push:api:
+  stage: push
+  <<: *docker_template
+  needs:
+    - build:api
+  script:
+    - docker push $API_IMAGE:$CI_COMMIT_SHA
+    - docker push $API_IMAGE:latest
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        docker tag $API_IMAGE:$CI_COMMIT_SHA $API_IMAGE:$CI_COMMIT_TAG
+        docker push $API_IMAGE:$CI_COMMIT_TAG
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG
+
+# =============================================================================
+# Stage: Deploy (Optional - Manual trigger)
+# =============================================================================
+deploy:staging:
+  stage: deploy
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "Deploying to staging..."
+    # Add your deployment commands here
+    # Example: kubectl set image deployment/api api=$API_IMAGE:$CI_COMMIT_SHA
+  environment:
+    name: staging
+    url: https://staging.example.com
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+deploy:production:
+  stage: deploy
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "Deploying to production..."
+    # Add your deployment commands here
+  environment:
+    name: production
+    url: https://example.com
+  when: manual
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# =============================================================================
+# Scheduled Jobs (Continuous Training)
+# =============================================================================
+smoke_train:
+  stage: test
+  <<: *docker_template
+  script:
+    - docker compose build trainer
+    - docker compose up -d minio minio-init postgres mlflow
+    - sleep 30  # Wait for services
+    - docker compose run --rm trainer pytest tests/test_smoke_train.py -v
+    - docker compose down
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  allow_failure: true

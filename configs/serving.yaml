@@ -1,0 +1,47 @@
+# =============================================================================
+# API Serving Configuration
+# =============================================================================
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  workers: 1
+  log_level: info
+
+model:
+  # Model URI - can be overridden by MODEL_URI env var
+  # Formats:
+  #   - models:/detector/1  (Model Registry version)
+  #   - models:/detector/Production  (Model Registry stage)
+  #   - runs:/<run_id>/artifacts/model
+  #   - /path/to/model.pt
+  uri: models:/detector/1
+  
+  # Inference settings
+  conf_threshold: 0.25
+  iou_threshold: 0.45
+  max_detections: 100
+  device: cpu  # cpu or cuda:0
+
+input:
+  # Max image size (larger images will be resized)
+  max_size: 1280
+  # Supported formats
+  formats:
+    - jpg
+    - jpeg
+    - png
+    - bmp
+    - webp
+
+output:
+  # Include base64 encoded image with annotations
+  include_image: false
+  # Include class names
+  include_labels: true
+
+monitoring:
+  # Enable Prometheus metrics
+  prometheus: true
+  # Metrics port (same as server if not specified)
+  metrics_path: /metrics

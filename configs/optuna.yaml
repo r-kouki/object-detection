@@ -1,0 +1,81 @@
+# =============================================================================
+# Optuna Hyperparameter Search Configuration
+# =============================================================================
+# Defines the search space for Optuna optimization
+# Runs 5-10 trials to find optimal hyperparameters
+
+optuna:
+  study_name: yolo11-hpo
+  n_trials: 7
+  direction: maximize  # maximize mAP50
+  sampler: TPESampler
+  pruner:
+    type: MedianPruner
+    n_startup_trials: 2
+    n_warmup_steps: 1
+
+# Base model (fixed)
+model:
+  name: yolo11n.pt
+  task: detect
+
+data:
+  dataset: coco128
+
+# Search space for hyperparameters
+search_space:
+  # Learning rate (log scale)
+  lr0:
+    type: float
+    low: 0.001
+    high: 0.05
+    log: true
+  
+  # Image size (categorical)
+  imgsz:
+    type: categorical
+    choices: [320, 416, 512, 640]
+  
+  # Batch size (categorical)
+  batch:
+    type: categorical
+    choices: [8, 16, 32]
+  
+  # Epochs (fixed small for HPO)
+  epochs:
+    type: categorical
+    choices: [3, 5]
+  
+  # Augmentation toggles
+  mosaic:
+    type: categorical
+    choices: [0.0, 0.5, 1.0]
+  
+  mixup:
+    type: categorical
+    choices: [0.0, 0.1, 0.2]
+  
+  # HSV augmentation
+  hsv_h:
+    type: float
+    low: 0.0
+    high: 0.03
+  
+  hsv_s:
+    type: float
+    low: 0.5
+    high: 0.9
+
+output:
+  project: /app/data/runs
+  name: optuna_trial
+  exist_ok: true
+
+mlflow:
+  experiment_name: yolo11-object-detection
+  parent_run_name: optuna-hpo
+  register_best: true
+  model_name: detector
+
+reproducibility:
+  seed: 42

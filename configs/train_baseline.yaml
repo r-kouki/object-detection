@@ -1,0 +1,60 @@
+# =============================================================================
+# Baseline Training Configuration (v1)
+# =============================================================================
+# Model: yolo11n (nano - fastest, good for CPU)
+# Dataset: COCO128 (small subset for quick training)
+# Purpose: Establish baseline metrics for comparison
+
+model:
+  name: yolo11n.pt
+  task: detect
+
+data:
+  dataset: coco128
+  # Path will be set at runtime by ingest script
+  # data_path: /app/data/coco128
+
+training:
+  epochs: 3
+  imgsz: 640
+  batch: 16
+  optimizer: auto
+  lr0: 0.01
+  lrf: 0.01
+  momentum: 0.937
+  weight_decay: 0.0005
+  warmup_epochs: 1.0
+  warmup_momentum: 0.8
+  warmup_bias_lr: 0.1
+  
+augmentation:
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  degrees: 0.0
+  translate: 0.1
+  scale: 0.5
+  shear: 0.0
+  perspective: 0.0
+  flipud: 0.0
+  fliplr: 0.5
+  mosaic: 1.0
+  mixup: 0.0
+  copy_paste: 0.0
+
+output:
+  project: /app/data/runs
+  name: baseline_v1
+  exist_ok: true
+  save: true
+  save_period: -1
+
+mlflow:
+  experiment_name: yolo11-object-detection
+  run_name: baseline-v1
+  register_model: true
+  model_name: detector
+
+reproducibility:
+  seed: 42
+  deterministic: true

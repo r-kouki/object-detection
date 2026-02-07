@@ -1,0 +1,60 @@
+# =============================================================================
+# Improved Training Configuration (v2)
+# =============================================================================
+# Changes from v1:
+# - More epochs (5 vs 3)
+# - Smaller image size (416 vs 640) for faster training
+# - Enhanced augmentation
+# - Slightly higher learning rate
+
+model:
+  name: yolo11n.pt
+  task: detect
+
+data:
+  dataset: coco128
+
+training:
+  epochs: 5
+  imgsz: 416
+  batch: 16
+  optimizer: auto
+  lr0: 0.015
+  lrf: 0.01
+  momentum: 0.937
+  weight_decay: 0.0005
+  warmup_epochs: 1.5
+  warmup_momentum: 0.8
+  warmup_bias_lr: 0.1
+
+augmentation:
+  hsv_h: 0.02
+  hsv_s: 0.8
+  hsv_v: 0.5
+  degrees: 5.0
+  translate: 0.15
+  scale: 0.6
+  shear: 2.0
+  perspective: 0.0001
+  flipud: 0.1
+  fliplr: 0.5
+  mosaic: 1.0
+  mixup: 0.1
+  copy_paste: 0.1
+
+output:
+  project: /app/data/runs
+  name: improved_v2
+  exist_ok: true
+  save: true
+  save_period: -1
+
+mlflow:
+  experiment_name: yolo11-object-detection
+  run_name: improved-v2
+  register_model: true
+  model_name: detector
+
+reproducibility:
+  seed: 42
+  deterministic: true
