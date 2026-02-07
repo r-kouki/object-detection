@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
-    mlflow>=2.10.0 \
+    mlflow==2.9.2 \
     psycopg2-binary \
     boto3
 

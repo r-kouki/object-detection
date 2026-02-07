@@ -89,6 +89,9 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      # Disable host validation for internal docker network
+      MLFLOW_HOST_REGEXP: ".*"
+      GUNICORN_CMD_ARGS: "--forwarded-allow-ips=*"
     command: >
       mlflow server
       --host 0.0.0.0
@@ -96,6 +99,7 @@ services:
       --backend-store-uri postgresql://${POSTGRES_USER:-mlflow}:${POSTGRES_PASSWORD:-mlflow}@postgres:5432/${POSTGRES_DB:-mlflow}
       --default-artifact-root s3://mlflow
       --serve-artifacts
+      --gunicorn-opts "--forwarded-allow-ips=* --timeout 120"
     ports:
       - "5000:5000"
     healthcheck:
